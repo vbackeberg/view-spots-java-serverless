@@ -1,0 +1,6 @@
+<component name="ArtifactManager">
+  <artifact type="jar" name="view-spots">
+    <output-path>$PROJECT_DIR$/out/artifacts/view_spots</output-path>
+    <root id="archive" name="view-spots.jar" />
+  </artifact>
+</component>

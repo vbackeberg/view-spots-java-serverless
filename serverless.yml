@@ -22,7 +22,7 @@ frameworkVersion: '3'
 
 provider:
   name: aws
-  runtime: java8
+  runtime: java11
 
 # you can overwrite defaults here
 #  stage: dev

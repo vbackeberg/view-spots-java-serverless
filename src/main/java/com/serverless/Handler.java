@@ -1,10 +1,11 @@
 package com.serverless;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.*;
-import java.util.stream.Stream;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
+import com.amazonaws.services.lambda.runtime.RequestStreamHandler;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Streams;
@@ -12,33 +13,29 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import com.amazonaws.services.lambda.runtime.Context;
-import com.amazonaws.services.lambda.runtime.RequestHandler;
 
 @SuppressWarnings("UnstableApiUsage")
-public class Handler implements RequestHandler<ViewSpotsRequest, ApiGatewayResponse> {
+public class Handler implements RequestStreamHandler {
 
     private static final Logger LOG = LogManager.getLogger(Handler.class);
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
-    public ApiGatewayResponse handleRequest(ViewSpotsRequest viewSpotsRequest, Context context) {
-//		LOG.info("received: {}", viewSpotsRequest);
-
+    public void handleRequest(InputStream inputStream, OutputStream outputStream, Context context) {
         // long start = System.currentTimeMillis();
 
-        var objectMapper = new ObjectMapper();
-        Mesh mesh;
+        ViewSpotsRequest viewSpotsRequest;
 
         try {
-            mesh = objectMapper.readValue(viewSpotsRequest.meshAsJsonString, new TypeReference<>() {
-            });
-        } catch (JsonProcessingException e) {
-            throw new RuntimeException(e);
+            viewSpotsRequest = objectMapper.readValue(inputStream, ViewSpotsRequest.class);
+        } catch (IOException ex) {
+            throw new RuntimeException(ex);
         }
 
         ElementWithValue[] viewSpotCandidates = Streams
                 .zip(
-                        Arrays.stream(mesh.elements),
-                        Arrays.stream(mesh.values),
+                        Arrays.stream(viewSpotsRequest.mesh.elements),
+                        Arrays.stream(viewSpotsRequest.mesh.values),
                         (ElementWithValue::new)
                 )
                 .sorted(Comparator.comparingDouble(ElementWithValue::getValue).reversed())
@@ -48,7 +45,7 @@ public class Handler implements RequestHandler<ViewSpotsRequest, ApiGatewayRespo
         var higherNodes = new HashSet<Integer>();
 
         var i = 0;
-        while (viewSpots.size() < viewSpotsRequest.requestedNumberOfViewSpots) {
+        while (viewSpots.size() < viewSpotsRequest.number) {
             var element = viewSpotCandidates[i];
 
             if (Sets.intersection(element.getNodes(), higherNodes).isEmpty()) {
@@ -59,19 +56,18 @@ public class Handler implements RequestHandler<ViewSpotsRequest, ApiGatewayRespo
             ++i;
 
             if (i == viewSpotCandidates.length) {
-                LOG.warn("More view spots requested than available.");
+                LOG.error("More view spots requested than available.");
                 break;
             }
         }
 
+        try {
+            objectMapper.writeValue(outputStream, viewSpots);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+
         // long time = System.currentTimeMillis() - start;
         // System.out.println("took: " + time);
-
-        return ApiGatewayResponse.builder()
-                .setStatusCode(200)
-                .setObjectBody(Arrays.toString(viewSpots.stream().flatMap(e ->
-                        Stream.of("\n{element_id: " + e.getId() + ", value: " + e.getValue() + "}")).toArray()))
-                .setHeaders(Collections.singletonMap("X-Powered-By", "AWS Lambda & serverless"))
-                .build();
     }
 }
